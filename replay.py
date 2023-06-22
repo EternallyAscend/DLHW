@@ -2,21 +2,18 @@ import numpy as np
 import time
 import torch
 
-# This function was mostly pulled from
-# https://github.com/fg91/Deep-Q-Learning/blob/master/DQN.ipynb
 class ReplayMemory:
-    """Replay Memory that stores the last size=1,000,000 transitions"""
     def __init__(self, size=1000000, frame_height=84, frame_width=84,
                  agent_history_length=4, batch_size=32, num_heads=1, bernoulli_probability=1.0):
         """
-        Args:
-            size: Integer, Number of stored transitions
-            frame_height: Integer, Height of a frame of an Atari game
-            frame_width: Integer, Width of a frame of an Atari game
-            agent_history_length: Integer, Number of frames stacked together to create a state
-            batch_size: Integer, Number if transitions returned in a minibatch
-            num_heads: integer number of heads needed in mask
-            bernoulli_probability: bernoulli probability that an experience will go to a particular head
+        输入:
+            size: Integer, 存储的转换数
+            frame_height: Integer, Atari游戏画面的高度
+            frame_width: Integer, Atari游戏画面的宽度
+            agent_history_length: Integer, 堆叠在一起创建状态的帧数
+            batch_size: Integer
+            num_heads: mask中需要的head的个数
+            bernoulli_probability: 到达特定的head的伯努利概率
         """
         self.bernoulli_probability = bernoulli_probability
         assert(self.bernoulli_probability > 0)
@@ -27,7 +24,7 @@ class ReplayMemory:
         self.count = 0
         self.current = 0
         self.num_heads = num_heads
-        # Pre-allocate memory
+        # 预分配内存
         self.actions = np.empty(self.size, dtype=np.int32)
         self.rewards = np.empty(self.size, dtype=np.float32)
         self.active_heads = np.empty(self.size, dtype=np.float32)
@@ -36,7 +33,7 @@ class ReplayMemory:
         self.terminal_flags = np.empty(self.size, dtype=np.bool)
         self.masks = np.empty((self.size, self.num_heads), dtype=np.bool)
 
-        # Pre-allocate memory for the states and new_states in a minibatch
+        # 在一个minibatch中为状态预分配内存
         self.states = np.empty((batch_size, self.agent_history_length,
                                 self.frame_height, self.frame_width), dtype=np.uint8)
         self.new_states = np.empty((batch_size, self.agent_history_length,
@@ -83,12 +80,11 @@ class ReplayMemory:
 
     def add_experience(self, action, frame, reward, terminal, active_head):
         """
-        Args:
-            action: An integer between 0 and env.action_space.n - 1
-                determining the action the agent perfomed
-            frame: A (84, 84, 1) frame of an Atari game in grayscale
-            reward: A float determining the reward the agend received for performing an action
-            terminal: A bool stating whether the episode terminated
+        输入:
+            action: 0和env.action_space.n - 1之间的整数,确定代理执行的操作
+            frame: Atari游戏的(84, 84, 1)灰度图
+            reward: float,用于确定agend执行一个操作所获得的奖励
+            terminal: bool,表示事件是否终止
         """
         if frame.shape != (self.frame_height, self.frame_width):
             raise ValueError('Dimension of frame is wrong!')
@@ -121,8 +117,7 @@ class ReplayMemory:
                     continue
                 if index >= self.current and index - self.agent_history_length <= self.current:
                     continue
-                # dont add if there was a terminal flag in previous
-                # history_length steps
+                # 之前的history_length步骤中有终止标志时不要add
                 if self.terminal_flags[index - self.agent_history_length:index].any():
                     continue
                 break
@@ -130,7 +125,7 @@ class ReplayMemory:
 
     def get_minibatch(self, batch_size):
         """
-        Returns a minibatch of batch_size
+        返回一个minibatch
         """
         if batch_size != self.states.shape[0]:
             self.states = np.empty((batch_size, self.agent_history_length,

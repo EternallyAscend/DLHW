@@ -82,34 +82,27 @@ def handle_checkpoint(last_save, cnt):
                 }
         filename = os.path.abspath(model_base_filepath +"_bestq.pkl")
         save_checkpoint(state, filename)
-        # npz will be added
-        #buff_filename = os.path.abspath(model_base_filepath + "_%010dq_train_buffer"%cnt)
-        #replay_memory.save_buffer(buff_filename)
+
         print("finished checkpoint", time.time()-st)
         return last_save
     else: return last_save
 
 
 class ActionGetter:
-    """Determines an action according to an epsilon greedy strategy with annealing epsilon"""
-    """This class is from fg91's dqn."""
+    """根据带有annealing epsilon的贪心策略确定动作"""
     def __init__(self, n_actions, eps_initial=1, eps_final=0.1, eps_final_frame=0.01,
                  eps_evaluation=0.0, eps_annealing_frames=100000,
                  replay_memory_start_size=50000, max_steps=25000000, random_seed=122):
         """
-        Args:
-            n_actions: Integer, number of possible actions
-            eps_initial: Float, Exploration probability for the first
-                replay_memory_start_size frames
-            eps_final: Float, Exploration probability after
-                replay_memory_start_size + eps_annealing_frames frames
-            eps_final_frame: Float, Exploration probability after max_frames frames
-            eps_evaluation: Float, Exploration probability during evaluation
-            eps_annealing_frames: Int, Number of frames over which the
-                exploration probabilty is annealed from eps_initial to eps_final
-            replay_memory_start_size: Integer, Number of frames during
-                which the agent only explores
-            max_frames: Integer, Total number of frames shown to the agent
+        输入:
+            n_actions: Integer, 可能的动作数
+            eps_initial: Float, 第一个replay_memory_start_size frames的探索概率
+            eps_final: Float, replay_memory_start_size + eps_annealing_frames frames之后的探索概率
+            eps_final_frame: Float, max_frames frames之后的探索概率
+            eps_evaluation: Float, 评估中的探索概率
+            eps_annealing_frames: Int, 探索概率从eps_initial到eps_final的帧数
+            replay_memory_start_size: Integer, 代理只进行探索的帧数
+            max_frames: Integer, 显示给代理的帧总数
         """
         self.n_actions = n_actions
         self.eps_initial = eps_initial
@@ -121,7 +114,7 @@ class ActionGetter:
         self.max_steps = max_steps
         self.random_state = np.random.RandomState(random_seed)
 
-        # Slopes and intercepts for exploration decrease
+        # 用于探索的坡度和截距减小
         if self.eps_annealing_frames > 0:
             self.slope = -(self.eps_initial - self.eps_final)/self.eps_annealing_frames
             self.intercept = self.eps_initial - self.slope*self.replay_memory_start_size
@@ -130,12 +123,12 @@ class ActionGetter:
 
     def pt_get_action(self, step_number, state, active_head=None, evaluation=False):
         """
-        Args:
-            step_number: int number of the current step
-            state: A (4, 84, 84) sequence of frames of an atari game in grayscale
-            active_head: number of head to use, if None, will run all heads and vote
-            evaluation: A boolean saying whether the agent is being evaluated
-        Returns:
+        输入:
+            step_number: int, 当前步长
+            state:  atari游戏的(4, 84, 84)灰度帧序列
+            active_head: 要使用的head数.如果没有,将运行所有的head并记录
+            evaluation: 表示是否对代理进行评估的布尔值
+        输出:
             An integer between 0 and n_actions
         """
 
@@ -177,7 +170,6 @@ def ptlearn(states, actions, rewards, next_states, terminal_flags, active_heads,
     terminal_flags = torch.Tensor(terminal_flags.astype(np.int)).to(info['DEVICE'])
     active_heads = torch.LongTensor(active_heads).to(info['DEVICE'])
     masks = torch.FloatTensor(masks.astype(np.int)).to(info['DEVICE'])
-    # min history to learn is 200,000 frames in dqn - 50000 steps
     losses = [0.0 for _ in range(info['N_ENSEMBLE'])]
 
     opt.zero_grad()
@@ -191,17 +183,17 @@ def ptlearn(states, actions, rewards, next_states, terminal_flags, active_heads,
     if 'PRIOR' in info['IMPROVEMENT']:
         info['PRIOR_SCALE'] = 1+torch.stack(next_q_target_vals).detach().max()/20
         prior_next_pi = torch.empty(info['N_ENSEMBLE'], info['BATCH_SIZE'], q_policy_vals[0].size(-1)).to(info['DEVICE'])
-        # sample priors
+        # 样本先验
         nn.init.normal_(prior_next_pi, 0, 0.02)
 
     for k in range(info['N_ENSEMBLE']):
-        # finish masking
+        # 完成masking
         total_used = torch.sum(masks[:,k])
         if total_used > 0.0:
             next_q_vals = next_q_target_vals[k].data
             next_policy_vals = next_q_policy_vals[k].data
             if 'PRIOR' in info['IMPROVEMENT']:
-                # add priors to the target value
+                # 为目标值添加先验
                 next_q_vals += info['PRIOR_SCALE']*prior_next_pi[k].detach()
                 next_policy_vals += info['PRIOR_SCALE']*prior_next_pi[k].detach()
 
@@ -210,24 +202,23 @@ def ptlearn(states, actions, rewards, next_states, terminal_flags, active_heads,
                 next_actions = next_policy_vals.max(1, True)[1]
                 next_qs = next_q_vals.gather(1, next_actions).squeeze(1)
             else:
-                next_qs = next_q_vals.max(1)[0] # max returns a pair
+                next_qs = next_q_vals.max(1)[0]
 
             preds = q_policy_vals[k].gather(1, actions[:,None]).squeeze(1) 
 
             targets = info['GAMMA'] * next_qs * (1-terminal_flags) + rewards
             l1loss = F.smooth_l1_loss(preds, targets, reduction='mean')
 
-            full_loss = masks[:,k]*l1loss #batch*1
+            full_loss = masks[:,k]*l1loss
             loss = torch.sum(full_loss/total_used)
             cnt_losses.append(loss)
             losses[k] = loss.cpu().detach().item()
 
     loss = sum(cnt_losses)/info['N_ENSEMBLE']
     loss.backward()
-    #for param in policy_net.core_net.parameters():
     for param in policy_net.parameters():
         if param.grad is not None:
-            # divide grads in core
+            # 按核心划分梯度
             param.grad.data *=1.0/float(info['N_ENSEMBLE'])
     nn.utils.clip_grad_norm_(policy_net.parameters(), info['CLIP_GRAD'])
 
@@ -236,7 +227,7 @@ def ptlearn(states, actions, rewards, next_states, terminal_flags, active_heads,
     return q_record.cpu(), np.mean(losses)
 
 def train(step_number, last_save):
-    """Contains the training and evaluation loops"""
+    """包含训练和评估循环"""
     epoch_num = len(perf['steps'])
     highest_eval_score = -np.inf
     waves = 0
@@ -273,7 +264,7 @@ def train(step_number, last_save):
 
                 ep_eps_list.append(eps)
                 next_state, reward, life_lost, terminal = env.step(action)
-                # Store transition in the replay memory
+                # 将转换存储在重播存储器中
 
                 replay_memory.add_experience(action=action,
                                                 frame=next_state[-1],
@@ -338,7 +329,7 @@ def evaluate(step_number, highest_eval_score):
     frames_for_gif = []
     heads_chosen = [0]*info['N_ENSEMBLE']
 
-    # use different seed for each eval
+    # 为每个eval使用不同的种子
     for i in range(info['NUM_EVAL_EPISODES']):
         eval_env = Environment(rom_file=info['GAME'], frame_skip=info['FRAME_SKIP'],
                     num_frames=info['HISTORY_SIZE'], no_op_start=info['MAX_NO_OP_FRAMES'], rand_seed=np.random.randint(255),
@@ -359,7 +350,7 @@ def evaluate(step_number, highest_eval_score):
             evaluate_step_number += 1
             episode_steps +=1
             episode_reward_sum += reward
-            # only save the episode with highest scores
+            # 只保存得分最高的
             frames_for_gif.append(eval_env.ale.getScreenRGB())
             if not episode_steps%100:
                 print('eval', episode_steps, episode_reward_sum)
@@ -392,49 +383,48 @@ if __name__ == '__main__':
 
     info = {
         "GAME":'roms/bowling.bin', # gym prefix
-        "DEVICE":device, #cpu vs gpu set by argument
-        "NAME":'FRANKbootstrap_fasteranneal_pong', # start files with name
-        "DUELING":False, # use dueling dqn
-        "DOUBLE_DQN":True, # use double dqn
-        "PRIOR":True, # turn on to use randomized prior
-        "PRIOR_SCALE":1, # what to scale prior by
-        "N_ENSEMBLE":1, # number of bootstrap heads to use. when 1, this is a normal dqn
-        "LEARN_EVERY_STEPS":4, # updates every 4 steps in osband
-        "BERNOULLI_PROBABILITY": 1.0, # Probability of experience to go to each head - if 1, every experience goes to every head
-        "TARGET_UPDATE":10000, # how often to update target network
-        "MIN_HISTORY_TO_LEARN":50000, # in environment frames
-        "NORM_BY":255.,  # divide the float(of uint) by this number to normalize - max val of data is 255
-        "EPS_INITIAL":1.0, # should be 1
-        "EPS_FINAL":0.01, # 0.01 in osband
-        "EPS_EVAL":0.0, # 0 in osband, .05 in others....
-        "EPS_ANNEALING_FRAMES":int(1e6), # this may have been 1e6 in osband
-        #"EPS_ANNEALING_FRAMES":0, # if it annealing is zero, then it will only use the bootstrap after the first MIN_EXAMPLES_TO_LEARN steps which are random
+        "DEVICE":device, # 按参数设置cpu or gpu
+        "NAME":'FRANKbootstrap_fasteranneal_pong',
+        "DUELING":False, # 使用dueling dqn
+        "DOUBLE_DQN":True, # 使用double dqn
+        "PRIOR":True, # 使用随机先验
+        "PRIOR_SCALE":1, # 先验扩展
+        "N_ENSEMBLE":1, # 要使用的bootstrap头的数量。为1时，是DQN
+        "LEARN_EVERY_STEPS":4, # 在osband中每4步更新一次
+        "BERNOULLI_PROBABILITY": 1.0, # 到达每个head的经验概率
+        "TARGET_UPDATE":10000, # 多久更新一次目标网络
+        "MIN_HISTORY_TO_LEARN":50000, 
+        "NORM_BY":255.,  # 将(uint)浮点数除以这个数字进行归一化,data的最大val是255
+        "EPS_INITIAL":1.0, 
+        "EPS_FINAL":0.01, 
+        "EPS_EVAL":0.0, 
+        "EPS_ANNEALING_FRAMES":int(1e6), 
         "EPS_FINAL_FRAME":0.01,
-        "NUM_EVAL_EPISODES":5, # num examples to average in eval
-        "BUFFER_SIZE":int(1e6), # Buffer size for experience replay
-        "CHECKPOINT_EVERY_STEPS":10000000, # how often to write pkl of model and npz of data buffer
-        "EVAL_FREQUENCY":250000, # how often to run evaluation episodes
+        "NUM_EVAL_EPISODES":5, # 评估时需要平均计算的例子数目
+        "BUFFER_SIZE":int(1e6), # experience replay缓冲区的大小
+        "CHECKPOINT_EVERY_STEPS":10000000, # 多久写一次模型的PKL和数据缓冲区的NPZ
+        "EVAL_FREQUENCY":250000, # 多长时间运行一次评估
         "ADAM_LEARNING_RATE":6.25e-5,
-        "RMS_LEARNING_RATE": 0.00025, # according to paper = 0.00025
+        "RMS_LEARNING_RATE": 0.00025,
         "RMS_DECAY":0.95,
         "RMS_MOMENTUM":0.0,
         "RMS_EPSILON":0.00001,
         "RMS_CENTERED":True,
-        "HISTORY_SIZE":4, # how many past frames to use for state input
-        "N_EPOCHS":90000,  # Number of episodes to run
-        "BATCH_SIZE":32, # Batch size to use for learning
-        "GAMMA":.99, # Gamma weight in Q update
+        "HISTORY_SIZE":4, # 状态输入要使用多少过去的帧
+        "N_EPOCHS":90000, 
+        "BATCH_SIZE":32,
+        "GAMMA":.99, # Q update中的Gamma权重
         "PLOT_EVERY_EPISODES": 50,
-        "CLIP_GRAD":5, # Gradient clipping setting
+        "CLIP_GRAD":5, # 梯度裁剪设置
         "SEED":101,
-        "RANDOM_HEAD":-1, # just used in plotting as demarcation
+        "RANDOM_HEAD":-1, # 在绘图时用作分界
         "NETWORK_INPUT_SIZE":(84,84),
         "START_TIME":time.time(),
-        "MAX_STEPS":int(50e6), # 50e6 steps is 200e6 frames
-        "MAX_EPISODE_STEPS":27000, # Orig dqn give 18k steps, Rainbow seems to give 27k steps
-        "FRAME_SKIP":4, # deterministic frame skips to match deepmind
-        "MAX_NO_OP_FRAMES":30, # random number of noops applied to beginning of each episode
-        "DEAD_AS_END":True, # do you send finished=true to agent while training when it loses a life
+        "MAX_STEPS":int(50e6),
+        "MAX_EPISODE_STEPS":27000, 
+        "FRAME_SKIP":4, # 跳过确定性框架以匹配deepmind
+        "MAX_NO_OP_FRAMES":30, # 每章开始时应用的随机noops数量
+        "DEAD_AS_END":True, # 当agent在训练中失去一条生命时结束游戏
         "IMPROVEMENT": ['swin', ''],
     }
 
@@ -445,12 +435,12 @@ if __name__ == '__main__':
     info['NAME'] = info['GAME'][5:-4]
 
 
-    # create environment
+    # 创建环境
     env = Environment(rom_file=info['GAME'], frame_skip=info['FRAME_SKIP'],
                       num_frames=info['HISTORY_SIZE'], no_op_start=info['MAX_NO_OP_FRAMES'], rand_seed=info['SEED'],
                       dead_as_end=info['DEAD_AS_END'], max_episode_steps=info['MAX_EPISODE_STEPS'])
 
-    # create replay buffer
+    # 创建replay buffer
     replay_memory = ReplayMemory(size=info['BUFFER_SIZE'],
                                  frame_height=info['NETWORK_INPUT_SIZE'][0],
                                  frame_width=info['NETWORK_INPUT_SIZE'][1],
@@ -470,20 +460,18 @@ if __name__ == '__main__':
                                  max_steps=info['MAX_STEPS'])
 
     if args.model_loadpath != '':
-        # load data from loadpath - save model load for later. we need some of
-        # these parameters to setup other things
         print('loading model from: %s' %args.model_loadpath)
         model_dict = torch.load(args.model_loadpath, map_location=torch.device(device))
         info = model_dict['info']
         info['DEVICE'] = device
-        # set a new random seed
+        # 设置一个新的随机种子
         info["SEED"] = model_dict['cnt']
         model_base_filedir = os.path.split(args.model_loadpath)[0]
         start_step_number = start_last_save = model_dict['cnt']
         perf = model_dict['perf']
         start_step_number = perf['steps'][-1]
     else:
-        # create new project
+        # 创建新项目
         perf = {'steps':[],
                 'avg_rewards':[],
                 'episode_step':[],
@@ -501,8 +489,6 @@ if __name__ == '__main__':
 
         start_step_number = 0
         start_last_save = 0
-        # make new directory for this run in the case that there is already a
-        # project with this name
         run_num = 0
         model_base_filedir = os.path.join(config.model_savedir, info['NAME'] + '%02d'%run_num)
         while os.path.exists(model_base_filedir):
@@ -516,7 +502,7 @@ if __name__ == '__main__':
     write_info_file(info, model_base_filepath, start_step_number)
     heads = list(range(info['N_ENSEMBLE']))
     seed_everything(info["SEED"])
-    #3,3,6 *2
+
     if 'swin' in info['IMPROVEMENT']:
         policy_net = SwinMLP(img_size=84, patch_size=3, in_chans=4, num_classes=env.num_actions, depths=[2, 3, 2], num_heads=[3, 3, 6], window_size=7).to(info['DEVICE'])
         target_net = SwinMLP(img_size=84, patch_size=3, in_chans=4, num_classes=env.num_actions, depths=[2, 3, 2], num_heads=[3, 3, 6] , window_size=7).to(info['DEVICE'])
@@ -533,33 +519,16 @@ if __name__ == '__main__':
 
     target_net.load_state_dict(policy_net.state_dict())
 
-    # create optimizer
-    # opt = optim.RMSprop(policy_net.parameters(),
-    #                    lr=info["RMS_LEARNING_RATE"],
-    #                    momentum=info["RMS_MOMENTUM"],
-    #                    eps=info["RMS_EPSILON"],
-    #                    centered=info["RMS_CENTERED"],
-    #                    alpha=info["RMS_DECAY"])
     opt = optim.Adam(policy_net.parameters(), lr=info['ADAM_LEARNING_RATE'])
 
     kl_loss = nn.KLDivLoss()
     ce_loss = nn.CrossEntropyLoss()
-    #eval_states = []
+
     if args.model_loadpath != '':
-        # nb: need to load replay memory and random states when use loading in training
         target_net.load_state_dict(model_dict['target_net_state_dict'])
         policy_net.load_state_dict(model_dict['policy_net_state_dict'])
         opt.load_state_dict(model_dict['optimizer'])
         print("loaded model state_dicts")
-        # if args.buffer_loadpath == '':
-        #     args.buffer_loadpath = args.model_loadpath.replace('.pkl', '_train_buffer.npz')
-        #     print("auto loading buffer from:%s" %args.buffer_loadpath)
-        #     try:
-        #         replay_memory.load_buffer(args.buffer_loadpath)
-        #     except Exception as e:
-        #         print(e)
-        #         print('not able to load from buffer: %s. exit() to continue with empty buffer' %args.buffer_loadpath)
-        #final_mean, final_std, final_highest_score = evaluate(50e6, -1e6)
     else:
         train(start_step_number, start_last_save)
 

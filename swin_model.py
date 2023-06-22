@@ -1,10 +1,3 @@
-# --------------------------------------------------------
-# Swin Transformer
-# Copyright (c) 2021 Microsoft
-# Licensed under The MIT License [see LICENSE for details]
-# Written by Ze Liu
-# --------------------------------------------------------
-
 import torch
 import torch.nn as nn
 import torch.utils.checkpoint as checkpoint
@@ -29,14 +22,14 @@ class Mlp(nn.Module):
         x = self.drop(x)
         return x
 
-
+## 窗口分割
 def window_partition(x, window_size):
     """
-    Args:
+    输入:
         x: (B, H, W, C)
-        window_size (int): window size
+        window_size (int): 窗口大小
 
-    Returns:
+    输出:
         windows: (num_windows*B, window_size, window_size, C)
     """
     B, H, W, C = x.shape
@@ -44,16 +37,16 @@ def window_partition(x, window_size):
     windows = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, window_size, window_size, C)
     return windows
 
-
+## 窗口反转
 def window_reverse(windows, window_size, H, W):
     """
-    Args:
+    输入:
         windows: (num_windows*B, window_size, window_size, C)
-        window_size (int): Window size
-        H (int): Height of image
-        W (int): Width of image
+        window_size (int): 窗口大小
+        H (int): 图像高度
+        W (int): 图像宽度
 
-    Returns:
+    输出:
         x: (B, H, W, C)
     """
     B = int(windows.shape[0] / (H * W / window_size / window_size))
@@ -63,43 +56,48 @@ def window_reverse(windows, window_size, H, W):
 
 
 class WindowAttention(nn.Module):
-    r""" Window based multi-head self attention (W-MSA) module with relative position bias.
-    It supports both of shifted and non-shifted window.
+    r""" 具有相对位置偏差的基于窗口的多头self-attention模块,同时支持可移动的和非移动窗口
 
-    Args:
-        dim (int): Number of input channels.
-        window_size (tuple[int]): The height and width of the window.
-        num_heads (int): Number of attention heads.
-        qkv_bias (bool, optional):  If True, add a learnable bias to query, key, value. Default: True
-        qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set
-        attn_drop (float, optional): Dropout ratio of attention weight. Default: 0.0
-        proj_drop (float, optional): Dropout ratio of output. Default: 0.0
+    输入:
+        dim (int): 输入的通道数
+        window_size (tuple[int]): 窗口的高度和宽度
+        num_heads (int): attention头的数量
+        qkv_bias (bool, optional):  如果True, 向query,key,value中添加一个可学习的偏移量. Default: True
+        qk_scale (float | None, optional): 覆盖head_dim的默认qk刻度 ** 若设置,-0.5 
+        attn_drop (float, optional): attention权重的Dropout率. Default: 0.0
+        proj_drop (float, optional): 输出的Dropout率. Default: 0.0
     """
 
     def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.):
 
         super().__init__()
         self.dim = dim
-        self.window_size = window_size  # Wh, Ww
+        self.window_size = window_size   
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.scale = qk_scale or head_dim ** -0.5
 
-        # define a parameter table of relative position bias
+        # 定义一个相对位置偏差的参数表
         self.relative_position_bias_table = nn.Parameter(
-            torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))  # 2*Wh-1 * 2*Ww-1, nH
+            torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))  
 
-        # get pair-wise relative position index for each token inside the window
+        # 获取窗口内每个token的成对的相对位置索引
         coords_h = torch.arange(self.window_size[0])
         coords_w = torch.arange(self.window_size[1])
-        coords = torch.stack(torch.meshgrid([coords_h, coords_w]))  # 2, Wh, Ww
-        coords_flatten = torch.flatten(coords, 1)  # 2, Wh*Ww
-        relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]  # 2, Wh*Ww, Wh*Ww
-        relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # Wh*Ww, Wh*Ww, 2
-        relative_coords[:, :, 0] += self.window_size[0] - 1  # shift to start from 0
+        coords = torch.stack(torch.meshgrid([coords_h, coords_w]))  
+        coords_flatten = torch.flatten(coords, 1)  
+        relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]  
+        relative_coords = relative_coords.permute(1, 2, 0).contiguous()  
+        relative_coords[:, :, 0] += self.window_size[0] - 1  # 从0开始
         relative_coords[:, :, 1] += self.window_size[1] - 1
+        """
+        后面需要将其展开成一维偏移量.而(2,1)和(1,2)这两个坐标在二维上是不同的,但是通过将x\y坐标相加转换为一维偏移的时候
+        他们的偏移量是相等的，所以需要对其做乘法操作，进行区分
+        """
         relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
-        relative_position_index = relative_coords.sum(-1)  # Wh*Ww, Wh*Ww
+        # 计算得到相对位置索引
+        relative_position_index = relative_coords.sum(-1)  
+        # relative_position_index注册为一个不参与网络学习的变量
         self.register_buffer("relative_position_index", relative_position_index)
 
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
@@ -107,25 +105,25 @@ class WindowAttention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
+        # 使用从截断正态分布中提取的值填充输入张量
         trunc_normal_(self.relative_position_bias_table, std=.02)
         self.softmax = nn.Softmax(dim=-1)
 
     def forward(self, x, mask=None):
         """
         Args:
-            x: input features with shape of (num_windows*B, N, C)
-            mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None
+            x: 输入以下格式的特征(num_windows*B, N, C)
+            mask: (0/-inf) 以下格式的mask(num_windows, Wh*Ww, Wh*Ww)或None
         """
         B_, N, C = x.shape
         qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
-
+        q, k, v = qkv[0], qkv[1], qkv[2]  
         q = q * self.scale
         attn = (q @ k.transpose(-2, -1))
 
         relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
-            self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
-        relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
+            self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  
+        relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous() 
         attn = attn + relative_position_bias.unsqueeze(0)
 
         if mask is not None:
@@ -147,36 +145,32 @@ class WindowAttention(nn.Module):
         return f'dim={self.dim}, window_size={self.window_size}, num_heads={self.num_heads}'
 
     def flops(self, N):
-        # calculate flops for 1 window with token length of N
+        # 计算拥有token大小的窗口的N个flop
         flops = 0
-        # qkv = self.qkv(x)
         flops += N * self.dim * 3 * self.dim
-        # attn = (q @ k.transpose(-2, -1))
         flops += self.num_heads * N * (self.dim // self.num_heads) * N
-        #  x = (attn @ v)
         flops += self.num_heads * N * N * (self.dim // self.num_heads)
-        # x = self.proj(x)
         flops += N * self.dim * self.dim
         return flops
 
 
 class SwinTransformerBlock(nn.Module):
-    r""" Swin Transformer Block.
+    r""" Swin Transformer模块
 
     Args:
-        dim (int): Number of input channels.
-        input_resolution (tuple[int]): Input resulotion.
-        num_heads (int): Number of attention heads.
-        window_size (int): Window size.
-        shift_size (int): Shift size for SW-MSA.
-        mlp_ratio (float): Ratio of mlp hidden dim to embedding dim.
-        qkv_bias (bool, optional): If True, add a learnable bias to query, key, value. Default: True
-        qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set.
-        drop (float, optional): Dropout rate. Default: 0.0
-        attn_drop (float, optional): Attention dropout rate. Default: 0.0
-        drop_path (float, optional): Stochastic depth rate. Default: 0.0
-        act_layer (nn.Module, optional): Activation layer. Default: nn.GELU
-        norm_layer (nn.Module, optional): Normalization layer.  Default: nn.LayerNorm
+        dim (int): 输入的通道数
+        input_resolution (tuple[int]): 输入的resulotion
+        num_heads (int): attention头的数量
+        window_size (int): 窗口大小
+        shift_size (int): SW-MSA的位移量
+        mlp_ratio (float): MLP隐藏维度与嵌入式维度之比
+        qkv_bias (bool, optional): 如果True, 向query,key,value中添加一个可学习的偏移量. Default: True
+        qk_scale (float | None, optional): 覆盖head_dim的默认qk刻度 ** 若设置,-0.5 
+        drop (float, optional): Dropout率. Default: 0.0
+        attn_drop (float, optional): Attention dropout率. Default: 0.0
+        drop_path (float, optional): 随机深度率. Default: 0.0
+        act_layer (nn.Module, optional): 激活层. Default: nn.GELU
+        norm_layer (nn.Module, optional): 归一化层.  Default: nn.LayerNorm
     """
 
     def __init__(self, dim, input_resolution, num_heads, window_size=7, shift_size=0,
@@ -190,7 +184,7 @@ class SwinTransformerBlock(nn.Module):
         self.shift_size = shift_size
         self.mlp_ratio = mlp_ratio
         if min(self.input_resolution) <= self.window_size:
-            # if window size is larger than input resolution, we don't partition windows
+            # 如果窗口大小大于输入分辨率，则不划分窗口
             self.shift_size = 0
             self.window_size = min(self.input_resolution)
         assert 0 <= self.shift_size < self.window_size, "shift_size must in 0-window_size"
@@ -206,9 +200,9 @@ class SwinTransformerBlock(nn.Module):
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
         if self.shift_size > 0:
-            # calculate attention mask for SW-MSA
+            # 计算SW-MSA的attention mask
             H, W = self.input_resolution
-            img_mask = torch.zeros((1, H, W, 1))  # 1 H W 1
+            img_mask = torch.zeros((1, H, W, 1)) 
             h_slices = (slice(0, -self.window_size),
                         slice(-self.window_size, -self.shift_size),
                         slice(-self.shift_size, None))
@@ -221,7 +215,7 @@ class SwinTransformerBlock(nn.Module):
                     img_mask[:, h, w, :] = cnt
                     cnt += 1
 
-            mask_windows = window_partition(img_mask, self.window_size)  # nW, window_size, window_size, 1
+            mask_windows = window_partition(img_mask, self.window_size)  
             mask_windows = mask_windows.view(-1, self.window_size * self.window_size)
             attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
             attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, float(0.0))
@@ -245,18 +239,18 @@ class SwinTransformerBlock(nn.Module):
         else:
             shifted_x = x
 
-        # partition windows
-        x_windows = window_partition(shifted_x, self.window_size)  # nW*B, window_size, window_size, C
-        x_windows = x_windows.view(-1, self.window_size * self.window_size, C)  # nW*B, window_size*window_size, C
+        # 分割窗口
+        x_windows = window_partition(shifted_x, self.window_size) 
+        x_windows = x_windows.view(-1, self.window_size * self.window_size, C) 
 
         # W-MSA/SW-MSA
-        attn_windows = self.attn(x_windows, mask=self.attn_mask)  # nW*B, window_size*window_size, C
+        attn_windows = self.attn(x_windows, mask=self.attn_mask) 
 
-        # merge windows
+        # 合并窗口
         attn_windows = attn_windows.view(-1, self.window_size, self.window_size, C)
-        shifted_x = window_reverse(attn_windows, self.window_size, H, W)  # B H' W' C
+        shifted_x = window_reverse(attn_windows, self.window_size, H, W) 
 
-        # reverse cyclic shift
+        # 反向循环位移
         if self.shift_size > 0:
             x = torch.roll(shifted_x, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
         else:
@@ -289,12 +283,12 @@ class SwinTransformerBlock(nn.Module):
 
 
 class PatchMerging(nn.Module):
-    r""" Patch Merging Layer.
+    r""" Patch合并层
 
     Args:
-        input_resolution (tuple[int]): Resolution of input feature.
-        dim (int): Number of input channels.
-        norm_layer (nn.Module, optional): Normalization layer.  Default: nn.LayerNorm
+        input_resolution (tuple[int]): 输入特征的resolution
+        dim (int): 输入的通道数
+        norm_layer (nn.Module, optional): 归一化层.  Default: nn.LayerNorm
     """
 
     def __init__(self, input_resolution, dim, norm_layer=nn.LayerNorm):
@@ -315,12 +309,12 @@ class PatchMerging(nn.Module):
 
         x = x.view(B, H, W, C)
 
-        x0 = x[:, 0::2, 0::2, :]  # B H/2 W/2 C
-        x1 = x[:, 1::2, 0::2, :]  # B H/2 W/2 C
-        x2 = x[:, 0::2, 1::2, :]  # B H/2 W/2 C
-        x3 = x[:, 1::2, 1::2, :]  # B H/2 W/2 C
-        x = torch.cat([x0, x1, x2, x3], -1)  # B H/2 W/2 4*C
-        x = x.view(B, -1, 4 * C)  # B H/2*W/2 4*C
+        x0 = x[:, 0::2, 0::2, :]   
+        x1 = x[:, 1::2, 0::2, :]   
+        x2 = x[:, 0::2, 1::2, :]   
+        x3 = x[:, 1::2, 1::2, :]   
+        x = torch.cat([x0, x1, x2, x3], -1) 
+        x = x.view(B, -1, 4 * C) 
 
         x = self.norm(x)
         x = self.reduction(x)
@@ -338,23 +332,23 @@ class PatchMerging(nn.Module):
 
 
 class BasicLayer(nn.Module):
-    """ A basic Swin Transformer layer for one stage.
+    """ 每一关的基本的Swin Transformer层
 
     Args:
-        dim (int): Number of input channels.
-        input_resolution (tuple[int]): Input resolution.
-        depth (int): Number of blocks.
-        num_heads (int): Number of attention heads.
-        window_size (int): Local window size.
-        mlp_ratio (float): Ratio of mlp hidden dim to embedding dim.
-        qkv_bias (bool, optional): If True, add a learnable bias to query, key, value. Default: True
-        qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set.
-        drop (float, optional): Dropout rate. Default: 0.0
-        attn_drop (float, optional): Attention dropout rate. Default: 0.0
-        drop_path (float | tuple[float], optional): Stochastic depth rate. Default: 0.0
-        norm_layer (nn.Module, optional): Normalization layer. Default: nn.LayerNorm
-        downsample (nn.Module | None, optional): Downsample layer at the end of the layer. Default: None
-        use_checkpoint (bool): Whether to use checkpointing to save memory. Default: False.
+        dim (int): 输入的通道数
+        input_resolution (tuple[int]): 输入的resolution
+        depth (int): block数
+        num_heads (int): attention头的数量
+        window_size (int): 本地窗口大小
+        mlp_ratio (float): MLP隐藏维度与嵌入式维度之比
+        qkv_bias (bool, optional): 如果True, 向query,key,value中添加一个可学习的偏移量. Default: True
+        qk_scale (float | None, optional): 覆盖head_dim的默认qk刻度 ** 若设置,-0.5 
+        drop (float, optional): Dropout率. Default: 0.0
+        attn_drop (float, optional): Attention dropout率. Default: 0.0
+        drop_path (float | tuple[float], optional): 随机深度率. Default: 0.0
+        norm_layer (nn.Module, optional): 归一化层. Default: nn.LayerNorm
+        downsample (nn.Module | None, optional): 每层之后的下个采样层. Default: None
+        use_checkpoint (bool): 是否使用checkpointing来节省内存. Default: False.
     """
 
     def __init__(self, dim, input_resolution, depth, num_heads, window_size,
@@ -367,7 +361,7 @@ class BasicLayer(nn.Module):
         self.depth = depth
         self.use_checkpoint = use_checkpoint
 
-        # build blocks
+        # 建立blocks
         self.blocks = nn.ModuleList([
             SwinTransformerBlock(dim=dim, input_resolution=input_resolution,
                                  num_heads=num_heads, window_size=window_size,
@@ -379,7 +373,7 @@ class BasicLayer(nn.Module):
                                  norm_layer=norm_layer)
             for i in range(depth)])
 
-        # patch merging layer
+        # patch合并层
         if downsample is not None:
             self.downsample = downsample(input_resolution, dim=dim, norm_layer=norm_layer)
         else:
@@ -408,14 +402,14 @@ class BasicLayer(nn.Module):
 
 
 class PatchEmbed(nn.Module):
-    r""" Image to Patch Embedding
+    r""" 补丁嵌入图像
 
     Args:
-        img_size (int): Image size.  Default: 224.
-        patch_size (int): Patch token size. Default: 4.
-        in_chans (int): Number of input image channels. Default: 3.
-        embed_dim (int): Number of linear projection output channels. Default: 96.
-        norm_layer (nn.Module, optional): Normalization layer. Default: None
+        img_size (int): 图像大小.  Default: 224.
+        patch_size (int): Patch token大小. Default: 4.
+        in_chans (int): 输入图像的通道数. Default: 3.
+        embed_dim (int): 线性投影输出通道数. Default: 96.
+        norm_layer (nn.Module, optional): 归一化层. Default: None
     """
 
     def __init__(self, img_size=224, patch_size=4, in_chans=3, embed_dim=96, norm_layer=None):
@@ -439,10 +433,10 @@ class PatchEmbed(nn.Module):
 
     def forward(self, x):
         B, C, H, W = x.shape
-        # FIXME look at relaxing size constraints
+        # 输入图像的尺寸必须与预期的尺寸完全匹配，所以需要放宽输入图像尺寸的约束条件
         assert H == self.img_size[0] and W == self.img_size[1], \
             f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
-        x = self.proj(x).flatten(2).transpose(1, 2)  # B Ph*Pw C
+        x = self.proj(x).flatten(2).transpose(1, 2) 
         if self.norm is not None:
             x = self.norm(x)
         return x
@@ -457,28 +451,26 @@ class PatchEmbed(nn.Module):
 
 class SwinTransformer(nn.Module):
     r""" Swin Transformer
-        A PyTorch impl of : `Swin Transformer: Hierarchical Vision Transformer using Shifted Windows`  -
-          https://arxiv.org/pdf/2103.14030
 
     Args:
-        img_size (int | tuple(int)): Input image size. Default 224
-        patch_size (int | tuple(int)): Patch size. Default: 4
-        in_chans (int): Number of input image channels. Default: 3
-        num_classes (int): Number of classes for classification head. Default: 1000
-        embed_dim (int): Patch embedding dimension. Default: 96
-        depths (tuple(int)): Depth of each Swin Transformer layer.
-        num_heads (tuple(int)): Number of attention heads in different layers.
-        window_size (int): Window size. Default: 7
-        mlp_ratio (float): Ratio of mlp hidden dim to embedding dim. Default: 4
-        qkv_bias (bool): If True, add a learnable bias to query, key, value. Default: True
-        qk_scale (float): Override default qk scale of head_dim ** -0.5 if set. Default: None
-        drop_rate (float): Dropout rate. Default: 0
-        attn_drop_rate (float): Attention dropout rate. Default: 0
-        drop_path_rate (float): Stochastic depth rate. Default: 0.1
-        norm_layer (nn.Module): Normalization layer. Default: nn.LayerNorm.
-        ape (bool): If True, add absolute position embedding to the patch embedding. Default: False
-        patch_norm (bool): If True, add normalization after patch embedding. Default: True
-        use_checkpoint (bool): Whether to use checkpointing to save memory. Default: False
+        img_size (int | tuple(int)): 图像大小. Default 224
+        patch_size (int | tuple(int)): Patch大小. Default: 4
+        in_chans (int): 输入图像的通道数. Default: 3
+        num_classes (int): classification头的类数. Default: 1000
+        embed_dim (int): Patch嵌入维数. Default: 96
+        depths (tuple(int)): 每个Swin Transformer层的深度.
+        num_heads (tuple(int)): 不同层的attention head的数量.
+        window_size (int): 窗口大小. Default: 7
+        mlp_ratio (float): MLP隐藏维度与嵌入式维度之比. Default: 4
+        qkv_bias (bool): 如果True, 向query,key,value中添加一个可学习的偏移量. Default: True
+        qk_scale (float): 覆盖head_dim的默认qk刻度 ** 若设置,-0.5 Default: None
+        drop_rate (float): Dropout率. Default: 0
+        attn_drop_rate (float): Attention dropout率. Default: 0
+        drop_path_rate (float): 随机深度率. Default: 0.1
+        norm_layer (nn.Module): 归一化层. Default: nn.LayerNorm.
+        ape (bool): If True, add 绝对位置嵌入 to the patch embedding. Default: False
+        patch_norm (bool): 如果为True则在补丁嵌入后增加规范化. Default: True
+        use_checkpoint (bool): 是否使用checkpointing来节省内存. Default: False
     """
 
     def __init__(self, img_size=224, patch_size=4, in_chans=3, num_classes=1000,
@@ -497,7 +489,7 @@ class SwinTransformer(nn.Module):
         self.num_features = int(embed_dim * 2 ** (self.num_layers - 1))
         self.mlp_ratio = mlp_ratio
 
-        # split image into non-overlapping patches
+        # 将图像分割成不重叠的小块
         self.patch_embed = PatchEmbed(
             img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim,
             norm_layer=norm_layer if self.patch_norm else None)
@@ -505,17 +497,17 @@ class SwinTransformer(nn.Module):
         patches_resolution = self.patch_embed.patches_resolution
         self.patches_resolution = patches_resolution
 
-        # absolute position embedding
+        # 绝对位置嵌入
         if self.ape:
             self.absolute_pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim))
             trunc_normal_(self.absolute_pos_embed, std=.02)
 
         self.pos_drop = nn.Dropout(p=drop_rate)
 
-        # stochastic depth
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
+        # 随机深度
+        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # 随机深度 decay rule
 
-        # build layers
+        # 建立layers
         self.layers = nn.ModuleList()
         for i_layer in range(self.num_layers):
             layer = BasicLayer(dim=int(embed_dim * 2 ** i_layer),
@@ -566,7 +558,7 @@ class SwinTransformer(nn.Module):
             x = layer(x)
 
         x = self.norm(x)  # B L C
-        x = self.avgpool(x.transpose(1, 2))  # B C 1
+        x = self.avgpool(x.transpose(1, 2)) 
         x = torch.flatten(x, 1)
         return x
 

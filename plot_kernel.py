@@ -28,34 +28,26 @@ def norm_by(x, scale=255):
     return (x-x.min())/(x.max()-x.min())*scale
 
 def plot_kernel():
-    color = 'gray' #'viridis'
+    color = 'gray'
     state0 = env.reset()
     for i in range(100):
         state0, reward, life_lost, terminal = env.step(1)
-    #cv2.imwrite('patch.jpg', state[-1])
     plt.imshow(state0[-1], cmap=color)
     plt.savefig('patch.jpg')
     plt.close()
     plt.imshow(state0[-1], cmap=color)
-    #plt.colorbar()
     state = torch.Tensor(state0.astype(np.float)/255)[None,:].to('cpu')
     avgpool = nn.AdaptiveAvgPool1d(1)
     m = nn.Upsample(scale_factor=12, mode='nearest')
     m0 = nn.Upsample(scale_factor=6, mode='nearest')
     m1 = nn.Upsample(size=(84,84), mode='nearest')
 
-    # patch_embedding = policy_net.patch_embed.proj(state)
-    # x = policy_net.patch_embed.norm(patch_embedding.flatten(2).transpose(1, 2))
-    # print(x.size())
-    # x0 = avgpool(x.reshape(28, 28, 96)).detach().squeeze()
-    # cv2.imwrite('patch0.jpg', norm_by(x0.detach().squeeze().numpy()).astype(np.uint8))
     x = policy_net.patch_embed(state)
     x = policy_net.pos_drop(x)
 
     x = policy_net.layers[0](x)
     x0 = avgpool(x.reshape(14, 14, 192)).detach().squeeze()
     plt.imshow(norm_by(m0(x0.unsqueeze(0).unsqueeze(0)).squeeze().numpy(), 100), cmap='viridis', alpha=0.6)
-    #plt.colorbar()
     plt.savefig('layer1.pdf')
     plt.close()
     plt.imshow(state0[-1], cmap=color)
@@ -86,9 +78,7 @@ def plot_kernel():
     y = F.relu(policy_net2.core_net.conv3(y))
 
     y = avgpool(y.reshape(64,7,7).transpose(0,1).transpose(1,2)).detach().squeeze()
-    #x = policy_net.norm(x)
     x = avgpool(x.reshape(7, 7, 384)).detach().squeeze()
-    #print(norm_by(m(y.unsqueeze(0).unsqueeze(0)).squeeze().numpy(), 100).max(),)
     plt.imshow(norm_by(m(x.unsqueeze(0).unsqueeze(0)).squeeze().numpy(), 100), cmap='viridis', alpha=0.6)
     
     plt.savefig('layer3.pdf')
@@ -96,9 +86,6 @@ def plot_kernel():
     plt.imshow(state0[-1], cmap=color)
     plt.imshow(norm_by(m(y.unsqueeze(0).unsqueeze(0)).squeeze().numpy(), 100), cmap='viridis', alpha=0.6)
     plt.savefig('conv3.pdf')
-
-    #x = avgpool(x.reshape(7, 7, 384)).detach().squeeze()
-    #cv2.imwrite('patch1.jpg', norm_by(x.detach().squeeze().numpy()).astype(np.uint8))
 
 if __name__ == '__main__':
     env = Environment(rom_file='roms/time_pilot.bin', frame_skip=4,

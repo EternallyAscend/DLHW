@@ -4,13 +4,7 @@ import numpy as np
 from atari_py.ale_python_interface import ALEInterface
 import cv2
 
-#from skimage.transform import resize
-#from skimage.color import rgb2gray
-#from imageio import imwrite
-#def preprocess_frame(observ, output_size):
-#    return resize(rgb2gray(observ),(output_size, output_size)).astype(np.float32, copy=False)
 
-# opencv is ~3x faster than skimage
 def cv_preprocess_frame(observ, output_size):
     gray = cv2.cvtColor(observ, cv2.COLOR_RGB2GRAY)
     output = cv2.resize(gray, (output_size, output_size), interpolation=cv2.INTER_NEAREST)
@@ -30,7 +24,6 @@ class Environment(object):
         self.max_episode_steps = max_episode_steps
         self.random_state = np.random.RandomState(rand_seed+15)
         self.ale = self._init_ale(rand_seed, rom_file)
-        # normally (160, 210)
         self.actions = self.ale.getMinimalActionSet()
 
         self.frame_skip = frame_skip
@@ -63,7 +56,7 @@ class Environment(object):
         return len(self.actions)
 
     def _get_current_frame(self):
-        # global glb_counter
+        # 全局glb_counter
         screen = self.ale.getScreenRGB()
         max_screen = np.maximum(self.prev_screen, screen)
         frame = cv_preprocess_frame(max_screen, self.frame_size)
@@ -81,7 +74,7 @@ class Environment(object):
             self.frame_queue.append(
                 np.zeros((self.frame_size, self.frame_size), dtype=np.uint8))
 
-        # steps are in steps the agent sees
+        # agent看到的步骤
         self.ale.reset_game()
         self.total_reward = 0
         self.prev_screen = np.zeros(self.prev_screen.shape, dtype=np.uint8)
@@ -102,9 +95,9 @@ class Environment(object):
         return np.array(self.frame_queue)
 
     def step(self, action_idx):
-        """Perform action and return frame sequence and reward.
-        Return:
-        state: [frames] of length num_frames, 0 if fewer is available
+        """执行动作并返回帧序列和奖励
+        返回:
+        state: [frames] of length num_frames, 可用的数量较少为0 
         reward: float
         """
         assert not self.end
@@ -165,5 +158,3 @@ if __name__ == '__main__':
     print('total steps:', i)
     print('mean time', np.mean(times))
     print('max time', np.max(times))
-    # with cv - 1000 steps ('mean time', 0.0008075275421142578) max   0.0008950233459472656
-    # with skimage -       ('mean time', 0.0022023658752441406) max,  0.003056049346923828
