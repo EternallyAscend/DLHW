@@ -321,14 +321,15 @@ Double Q-learning 是一种用于增强学习的算法，用于解决传统 Q-le
 \newpage
 \appendix
 \section{研究方向}
-于海龙主要研究方向为区块链，目前面临的问题为分布式系统数据同步过程通信瓶颈，负责完成环境配置、代码运行与检查和文章报告撰写。刘方圆主要研究方向为强化学习，负责完成代码编写和文章报告检查。实际工作量为各50\%。
+于海龙主要研究方向为区块链，目前面临的问题为分布式系统数据同步过程通信瓶颈，负责完成环境配置、代码编写和运行与检查和文章报告撰写。刘方圆主要研究方向为强化学习，负责完成代码编写和文章报告检查。实际工作量为各50\%。
 \section{课题选择}
 以强化学习方向为基础，选择深度强化学习的目标是希望使用深度学习实现一个可以根据音频乐谱序列输入输出合理演奏指法的智能体。但由于这种实验目标需要自行设计指法评分并且训练过程可预期的需要消耗大量时间，在这个过程中选择复现 Deep Reinforcement Learning with Swin Transformers 文章的方法，受设备算力限制，仅完成游戏 bowling.bin 的复现。
 \section{运行环境}
 \subsection{Docker}
 \begin{lstlisting}[language=sh]
-    docker run -itd -v "D:\Projects\ReinforcementLearning:/rl" --gpus "device=0" --name "Ubuntu" ubuntu /bin/bash
+    docker run -itd -v "D:\Projects\DLHW:/rl" --gpus "device=0" --name "DLHW" ubuntu /bin/bash
 \end{lstlisting}
+在docker容器内执行`python3 /DLHW/run.py -c'
 \subsection{Linux}
 \begin{lstlisting}[language=sh]
     apt install python3 pip cmake zlib1g-dev git libsdl1.2-dev -y
@@ -344,6 +345,7 @@ matplotlib
 timm
 scipy
 imageio
+atari_py
 \end{lstlisting}
 \subsection{GitHub Repo}
 \url{https://github.com/EternallyAscend/DLHW}
